@@ -9,11 +9,15 @@ import TableRow from "@mui/material/TableRow";
 import Paper from "@mui/material/Paper";
 import { useDispatch, useSelector } from "react-redux";
 import { AppDispatch, RootState } from "@/store/useUserStore";
-import { fetchAllUsers, setUser } from "@/store/useUserSlice";
+import { setUser } from "@/store/useUserSlice";
 import { Avatar, IconButton, Stack, Typography } from "@mui/material";
 import { MdVisibilityOff, MdVisibility } from "react-icons/md";
 import { maskEmail } from "@/src/utils/general";
 import Modal from "./Modal";
+
+interface UserTableProps {
+  users: IUser[];
+}
 
 const StyledTableCell = styled(TableCell)(({ theme }) => ({
   [`&.${tableCellClasses.head}`]: {
@@ -39,13 +43,13 @@ const StyledTableRow = styled(TableRow)(({ theme }) => ({
   },
 }));
 
-function UserTable() {
+const UserTable: React.FC<UserTableProps> = ({ users }) => {
   const dispatch = useDispatch<AppDispatch>();
-  const users = useSelector((state: RootState) => state.users.users);
+  // const users = useSelector((state: RootState) => state.users.users);
   const user = useSelector((state: RootState) => state.users.user);
 
-  const usersStatus = useSelector((state: RootState) => state.users.status);
   const [revealedEmails, setRevealedEmails] = useState<Set<number>>(new Set());
+  const [emails, setEmails] = useState<{ [key: number]: string }>({});
   const [open, setOpen] = useState(false);
 
   // Updated styles for the table container to add spacing and shadow
@@ -67,17 +71,38 @@ function UserTable() {
     },
   };
 
-  const toggleEmailVisibility = (userId: number): void => {
-    setRevealedEmails((prevRevealedEmails) => {
-      const newRevealedEmails = new Set(prevRevealedEmails);
-      if (newRevealedEmails.has(userId)) {
-        newRevealedEmails.delete(userId);
-      } else {
-        newRevealedEmails.add(userId);
-      }
-      return newRevealedEmails;
-    });
+  const fetchUserEmail = async (userId: number) => {
+    const res = await fetch(`/api/user/${userId}`);
+    const data = await res.json();
+    if (res.ok) {
+      return data.email;
+    } else {
+      throw new Error(data.error || "Failed to fetch email");
+    }
   };
+
+  const toggleEmailVisibility = async (userId: number): Promise<void> => {
+    if (revealedEmails.has(userId)) {
+      setRevealedEmails(prevRevealedEmails => {
+        const newRevealedEmails = new Set(prevRevealedEmails);
+        newRevealedEmails.delete(userId);
+        return newRevealedEmails;
+      });
+    } else {
+      // Check if the email is already fetched, to prevent any API spam
+      if (!emails[userId]) {
+        try {
+          const email = await fetchUserEmail(userId);
+          setEmails(prevEmails => ({ ...prevEmails, [userId]: email }));
+        } catch (error) {
+          console.error("Failed to fetch email:", error);
+          return;
+        }
+      }
+      setRevealedEmails(prevRevealedEmails => new Set(prevRevealedEmails).add(userId));
+    }
+  };
+  
 
   const handleViewProfile = (user: IUser) => {
     dispatch(setUser(user));
@@ -87,12 +112,6 @@ function UserTable() {
   const closeViewProfile = () => {
     setOpen(false);
   };
-
-  useEffect(() => {
-    if (usersStatus === "idle") {
-      dispatch(fetchAllUsers());
-    }
-  }, [dispatch, usersStatus]);
 
   return (
     <>
@@ -135,7 +154,7 @@ function UserTable() {
                 <StyledTableCell>
                   {revealedEmails.has(row.id!) ? (
                     <>
-                      <span>{row.email}</span>
+                      <span>{emails[row.id!]}</span>
                       <IconButton
                         onClick={() => toggleEmailVisibility(row.id!)}
                         aria-label="hide email"
@@ -145,9 +164,9 @@ function UserTable() {
                     </>
                   ) : (
                     <>
-                      <span>{maskEmail(row?.email)}</span>
+                      <span>***********</span>
                       <IconButton
-                        onClick={() => toggleEmailVisibility(row?.id!)}
+                        onClick={() => toggleEmailVisibility(row.id!)}
                         aria-label="show email"
                       >
                         <MdVisibility />
@@ -163,6 +182,6 @@ function UserTable() {
       <Modal open={open} onClose={closeViewProfile} user={user} />
     </>
   );
-}
+};
 
 export default UserTable;
